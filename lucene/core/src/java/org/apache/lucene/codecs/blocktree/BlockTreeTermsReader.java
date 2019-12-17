@@ -19,11 +19,13 @@ package org.apache.lucene.codecs.blocktree;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.TreeMap;
+import java.util.Map;
 
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.FieldsProducer;
@@ -74,6 +76,39 @@ import org.apache.lucene.util.fst.Outputs;
 
 public final class BlockTreeTermsReader extends FieldsProducer {
 
+  /**
+   * An enum that allows to control if term index FSTs are loaded into memory or read off-heap
+   */
+  public enum FSTLoadMode {
+    /**
+     * Always read FSTs from disk.
+     * NOTE: If this option is used the FST will be read off-heap even if buffered directory implementations
+     * are used.
+     */
+    OFF_HEAP,
+    /**
+     * Never read FSTs from disk ie. all fields FSTs are loaded into memory
+     */
+    ON_HEAP,
+    /**
+     * Always read FSTs from disk.
+     * An exception is made for ID fields in an IndexWriter context which are always loaded into memory.
+     * This is useful to guarantee best update performance even if a non MMapDirectory is used.
+     * NOTE: If this option is used the FST will be read off-heap even if buffered directory implementations
+     * are used.
+     * See {@link FSTLoadMode#AUTO}
+     */
+    OPTIMIZE_UPDATES_OFF_HEAP,
+    /**
+     * Automatically make the decision if FSTs are read from disk depending if the segment read from an MMAPDirectory
+     * An exception is made for ID fields in an IndexWriter context which are always loaded into memory.
+     */
+    AUTO
+  }
+
+  /** Attribute key for fst mode. */
+  public static final String FST_MODE_KEY = "blocktree.terms.fst";
+
   static final Outputs<BytesRef> FST_OUTPUTS = ByteSequenceOutputs.getSingleton();
   
   static final BytesRef NO_OUTPUT = FST_OUTPUTS.getNoOutput();
@@ -102,6 +137,8 @@ public final class BlockTreeTermsReader extends FieldsProducer {
 
   // Open input to the main terms dict file (_X.tib)
   final IndexInput termsIn;
+  // Open input to the terms index file (_X.tip)
+  final IndexInput indexIn;
 
   //private static final boolean DEBUG = BlockTreeTermsWriter.DEBUG;
 
@@ -109,16 +146,16 @@ public final class BlockTreeTermsReader extends FieldsProducer {
   // produce DocsEnum on demand
   final PostingsReaderBase postingsReader;
 
-  private final TreeMap<String,FieldReader> fields = new TreeMap<>();
+  private final Map<String,FieldReader> fieldMap;
+  private final List<String> fieldList;
 
   final String segment;
   
   final int version;
 
   /** Sole constructor. */
-  public BlockTreeTermsReader(PostingsReaderBase postingsReader, SegmentReadState state) throws IOException {
+  public BlockTreeTermsReader(PostingsReaderBase postingsReader, SegmentReadState state, FSTLoadMode defaultLoadMode) throws IOException {
     boolean success = false;
-    IndexInput indexIn = null;
     
     this.postingsReader = postingsReader;
     this.segment = state.segmentInfo.name;
@@ -154,11 +191,12 @@ public final class BlockTreeTermsReader extends FieldsProducer {
       seekDir(termsIn);
       seekDir(indexIn);
 
+      final FSTLoadMode fstLoadMode = getLoadMode(state.readerAttributes, FST_MODE_KEY, defaultLoadMode);
       final int numFields = termsIn.readVInt();
       if (numFields < 0) {
         throw new CorruptIndexException("invalid numFields: " + numFields, termsIn);
       }
-
+      fieldMap = new HashMap<>((int) (numFields / 0.75f) + 1);
       for (int i = 0; i < numFields; ++i) {
         final int field = termsIn.readVInt();
         final long numTerms = termsIn.readVLong();
@@ -189,22 +227,37 @@ public final class BlockTreeTermsReader extends FieldsProducer {
         if (sumTotalTermFreq < sumDocFreq) { // #positions must be >= #postings
           throw new CorruptIndexException("invalid sumTotalTermFreq: " + sumTotalTermFreq + " sumDocFreq: " + sumDocFreq, termsIn);
         }
+        final FSTLoadMode perFieldLoadMode = getLoadMode(state.readerAttributes, FST_MODE_KEY + "." + fieldInfo.name, fstLoadMode);
         final long indexStartFP = indexIn.readVLong();
-        FieldReader previous = fields.put(fieldInfo.name,       
+        FieldReader previous = fieldMap.put(fieldInfo.name,
                                           new FieldReader(this, fieldInfo, numTerms, rootCode, sumTotalTermFreq, sumDocFreq, docCount,
-                                                          indexStartFP, longsSize, indexIn, minTerm, maxTerm));
+                                                          indexStartFP, longsSize, indexIn, minTerm, maxTerm, state.openedFromWriter, perFieldLoadMode));
         if (previous != null) {
           throw new CorruptIndexException("duplicate field: " + fieldInfo.name, termsIn);
         }
       }
-      
-      indexIn.close();
+      List<String> fieldList = new ArrayList<>(fieldMap.keySet());
+      fieldList.sort(null);
+      this.fieldList = Collections.unmodifiableList(fieldList);
       success = true;
     } finally {
       if (!success) {
         // this.close() will close in:
-        IOUtils.closeWhileHandlingException(indexIn, this);
+        IOUtils.closeWhileHandlingException(this);
       }
+    }
+  }
+
+  private static FSTLoadMode getLoadMode(Map<String, String> attributes, String key, FSTLoadMode defaultValue) {
+    String value = attributes.get(key);
+    if (value == null) {
+      return defaultValue;
+    }
+    try {
+      return FSTLoadMode.valueOf(value);
+    } catch (IllegalArgumentException ex) {
+      throw new IllegalArgumentException("Invalid value for " + key + " expected one of: "
+          + Arrays.toString(FSTLoadMode.values()) + " but was: " + value, ex);
     }
   }
 
@@ -237,28 +290,28 @@ public final class BlockTreeTermsReader extends FieldsProducer {
   @Override
   public void close() throws IOException {
     try {
-      IOUtils.close(termsIn, postingsReader);
+      IOUtils.close(indexIn, termsIn, postingsReader);
     } finally { 
       // Clear so refs to terms index is GCable even if
       // app hangs onto us:
-      fields.clear();
+      fieldMap.clear();
     }
   }
 
   @Override
   public Iterator<String> iterator() {
-    return Collections.unmodifiableSet(fields.keySet()).iterator();
+    return fieldList.iterator();
   }
 
   @Override
   public Terms terms(String field) throws IOException {
     assert field != null;
-    return fields.get(field);
+    return fieldMap.get(field);
   }
 
   @Override
   public int size() {
-    return fields.size();
+    return fieldMap.size();
   }
 
   // for debugging
@@ -280,7 +333,7 @@ public final class BlockTreeTermsReader extends FieldsProducer {
   @Override
   public long ramBytesUsed() {
     long sizeInBytes = postingsReader.ramBytesUsed();
-    for(FieldReader reader : fields.values()) {
+    for(FieldReader reader : fieldMap.values()) {
       sizeInBytes += reader.ramBytesUsed();
     }
     return sizeInBytes;
@@ -288,8 +341,7 @@ public final class BlockTreeTermsReader extends FieldsProducer {
 
   @Override
   public Collection<Accountable> getChildResources() {
-    List<Accountable> resources = new ArrayList<>();
-    resources.addAll(Accountables.namedAccountables("field", fields));
+    List<Accountable> resources = new ArrayList<>(Accountables.namedAccountables("field", fieldMap));
     resources.add(Accountables.namedAccountable("delegate", postingsReader));
     return Collections.unmodifiableList(resources);
   }
@@ -305,6 +357,6 @@ public final class BlockTreeTermsReader extends FieldsProducer {
 
   @Override
   public String toString() {
-    return getClass().getSimpleName() + "(fields=" + fields.size() + ",delegate=" + postingsReader + ")";
+    return getClass().getSimpleName() + "(fields=" + fieldMap.size() + ",delegate=" + postingsReader + ")";
   }
 }

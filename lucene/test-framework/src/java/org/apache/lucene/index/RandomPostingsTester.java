@@ -519,7 +519,7 @@ public class RandomPostingsTester {
     }
   }
 
-  private static class SeedTermsEnum extends TermsEnum {
+  private static class SeedTermsEnum extends BaseTermsEnum {
     final SortedMap<BytesRef,SeedAndOrd> terms;
     final IndexOptions maxAllowed;
     final boolean allowPayloads;
@@ -748,7 +748,7 @@ public class RandomPostingsTester {
 
     currentFieldInfos = newFieldInfos;
 
-    SegmentReadState readState = new SegmentReadState(dir, segmentInfo, newFieldInfos, IOContext.READ);
+    SegmentReadState readState = new SegmentReadState(dir, segmentInfo, newFieldInfos, false, IOContext.READ, Collections.emptyMap());
 
     return codec.postingsFormat().fieldsProducer(readState);
   }

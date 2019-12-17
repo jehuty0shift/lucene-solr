@@ -71,6 +71,11 @@ grant {
   permission java.lang.RuntimePermission "getenv.*";
   permission java.lang.RuntimePermission "loadLibrary.dpujni-2019.*";
   permission java.io.FilePermission "<<ALL FILES>>", "read";
+  
+  // needed by org.apache.logging.log4j
+  permission java.lang.RuntimePermission "getenv.*";
+  permission java.lang.RuntimePermission "getClassLoader";
+  permission java.lang.RuntimePermission "setContextClassLoader";
 
   // read access to all system properties:
   permission java.util.PropertyPermission "*", "read";

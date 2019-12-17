@@ -49,8 +49,8 @@
     <bool name="solr.hdfs.blockcache.enabled">${solr.hdfs.blockcache.enabled:true}</bool> 
     <bool name="solr.hdfs.blockcache.global">${solr.hdfs.blockcache.global:true}</bool>
     <bool name="solr.hdfs.blockcache.write.enabled">${solr.hdfs.blockcache.write.enabled:false}</bool>
-    <int name="solr.hdfs.blockcache.blocksperbank">10</int>
-    <int name="solr.hdfs.blockcache.slab.count">1</int>
+    <int name="solr.hdfs.blockcache.blocksperbank">${solr.hdfs.blockcache.blocksperbank:10}</int>
+    <int name="solr.hdfs.blockcache.slab.count">${solr.hdfs.blockcache.slab.count:1}</int>
   </directoryFactory>
 
   <schemaFactory class="ClassicIndexSchemaFactory"/>
@@ -95,25 +95,25 @@
          that match a particular query.
       -->
     <filterCache
-      class="solr.search.FastLRUCache"
+      class="solr.search.CaffeineCache"
       size="512"
       initialSize="512"
       autowarmCount="2"/>
 
     <queryResultCache
-      class="solr.search.LRUCache"
+      class="solr.search.CaffeineCache"
       size="512"
       initialSize="512"
       autowarmCount="2"/>
 
     <documentCache
-      class="solr.search.LRUCache"
+      class="solr.search.CaffeineCache"
       size="512"
       initialSize="512"
       autowarmCount="0"/>
 
     <cache name="perSegFilter"
-      class="solr.search.LRUCache"
+      class="solr.search.CaffeineCache"
       size="10"
       initialSize="0"
       autowarmCount="10" />
@@ -125,7 +125,7 @@
     <!--
 
     <cache name="myUserCache"
-      class="solr.search.LRUCache"
+      class="solr.search.CaffeineCache"
       size="4096"
       initialSize="1024"
       autowarmCount="1024"

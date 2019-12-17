@@ -321,6 +321,15 @@ public class OverseerTaskProcessor implements Runnable, Closeable {
             return;
           }
           SolrException.log(log, "", e);
+          
+          // Prevent free-spinning this loop.
+          try {
+            Thread.sleep(1000);
+          } catch (InterruptedException e1) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+          
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
           return;
@@ -343,10 +352,10 @@ public class OverseerTaskProcessor implements Runnable, Closeable {
 
   private void cleanUpWorkQueue() throws KeeperException, InterruptedException {
     synchronized (completedTasks) {
-      for (String id : completedTasks.keySet()) {
-        workQueue.remove(completedTasks.get(id));
+      for (Map.Entry<String, QueueEvent> entry : completedTasks.entrySet()) {
+        workQueue.remove(entry.getValue());
         synchronized (runningZKTasks) {
-          runningZKTasks.remove(id);
+          runningZKTasks.remove(entry.getKey());
         }
       }
       completedTasks.clear();

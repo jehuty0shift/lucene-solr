@@ -94,7 +94,7 @@ import org.apache.lucene.analysis.snowball.TestSnowball;
 import org.apache.lucene.analysis.standard.StandardTokenizer;
 import org.apache.lucene.analysis.synonym.SynonymMap;
 import org.apache.lucene.analysis.wikipedia.WikipediaTokenizer;
-import org.apache.lucene.store.RAMDirectory;
+import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.util.AttributeFactory;
 import org.apache.lucene.util.AttributeSource;
 import org.apache.lucene.util.CharsRef;
@@ -387,7 +387,7 @@ public class TestRandomChains extends BaseTokenStreamTestCase {
         InputStream affixStream = TestHunspellStemFilter.class.getResourceAsStream("simple.aff");
         InputStream dictStream = TestHunspellStemFilter.class.getResourceAsStream("simple.dic");
         try {
-          return new Dictionary(new RAMDirectory(), "dictionary", affixStream, dictStream);
+          return new Dictionary(new ByteBuffersDirectory(), "dictionary", affixStream, dictStream);
         } catch (Exception ex) {
           Rethrow.rethrow(ex);
           return null; // unreachable code
@@ -408,7 +408,7 @@ public class TestRandomChains extends BaseTokenStreamTestCase {
         try {
           String lang = TestSnowball.SNOWBALL_LANGS[random.nextInt(TestSnowball.SNOWBALL_LANGS.length)];
           Class<? extends SnowballProgram> clazz = Class.forName("org.tartarus.snowball.ext." + lang + "Stemmer").asSubclass(SnowballProgram.class);
-          return clazz.newInstance();
+          return clazz.getConstructor().newInstance();
         } catch (Exception ex) {
           Rethrow.rethrow(ex);
           return null; // unreachable code

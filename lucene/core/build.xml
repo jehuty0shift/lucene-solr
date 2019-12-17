@@ -57,14 +57,12 @@
     <pathelement location="${common.dir}/build/codecs/classes/java"/>
     <pathelement location="${common.dir}/build/test-framework/classes/java"/>
     <path refid="junit-path"/>
-    <pathelement location="${-test.classpath.java9.addon}"/><!-- if it's a duplicate it gets removed by Ant! -->
     <pathelement location="${build.dir}/classes/java"/>
     <pathelement location="${build.dir}/classes/test"/>
   </path>
 
   <path id="junit.classpath">
     <path refid="test.classpath"/>
-    <pathelement path="${java.class.path}"/>
   </path>
 
   <target name="test-core" depends="common.test"/>

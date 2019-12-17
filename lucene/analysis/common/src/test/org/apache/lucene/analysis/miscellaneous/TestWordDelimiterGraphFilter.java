@@ -380,6 +380,51 @@ public class TestWordDelimiterGraphFilter extends BaseTokenStreamTestCase {
     };
   }
 
+  public void testOriginalTokenEmittedFirst() throws Exception {
+    final int flags = PRESERVE_ORIGINAL | GENERATE_WORD_PARTS | GENERATE_NUMBER_PARTS | CATENATE_WORDS | CATENATE_NUMBERS | CATENATE_ALL | SPLIT_ON_CASE_CHANGE | SPLIT_ON_NUMERICS | STEM_ENGLISH_POSSESSIVE;
+
+    /* analyzer that uses whitespace + wdf */
+    Analyzer a = new Analyzer() {
+      @Override
+      public TokenStreamComponents createComponents(String field) {
+        Tokenizer tokenizer = new MockTokenizer(MockTokenizer.WHITESPACE, false);
+        return new TokenStreamComponents(tokenizer, new WordDelimiterGraphFilter(tokenizer, true, DEFAULT_WORD_DELIM_TABLE, flags, null));
+      }
+    };
+
+    assertAnalyzesTo(a, "abc-def abcDEF abc123",
+        new String[] { "abc-def", "abcdef", "abc", "def", "abcDEF", "abcDEF", "abc", "DEF", "abc123", "abc123", "abc", "123" });
+    a.close();
+  }
+
+  // https://issues.apache.org/jira/browse/LUCENE-9006
+  public void testCatenateAllEmittedBeforeParts() throws Exception {
+    // no number parts
+    final int flags = PRESERVE_ORIGINAL | GENERATE_WORD_PARTS | CATENATE_ALL;
+
+    //not using getAnalyzer because we want adjustInternalOffsets=true
+    Analyzer a = new Analyzer() {
+      @Override
+      public TokenStreamComponents createComponents(String field) {
+        Tokenizer tokenizer = new MockTokenizer(MockTokenizer.WHITESPACE, false);
+        return new TokenStreamComponents(tokenizer, new WordDelimiterGraphFilter(tokenizer, true, DEFAULT_WORD_DELIM_TABLE, flags, null));
+      }
+    };
+
+    // input starts with a number, but we don't generate numbers.
+    //   Nonetheless preserve-original and concatenate-all show up first.
+    assertTokenStreamContents(a.tokenStream("dummy", "8-other"),
+        new String[] { "8-other", "8other", "other" }, new int[]{0, 0, 2}, new int[]{7, 7, 7});
+
+    boolean useCharFilter = true;
+    boolean graphOffsetsAreCorrect = false; // note: could solve via always incrementing wordPos on first word ('8')
+    checkAnalysisConsistency(random(), a, useCharFilter, "8-other", graphOffsetsAreCorrect);
+
+    verify("8-other", flags); // uses getAnalyzer which uses adjustInternalOffsets=false which works
+
+    a.close();
+  }
+
   /** concat numbers + words + all */
   public void testLotsOfConcatenating() throws Exception {
     final int flags = GENERATE_WORD_PARTS | GENERATE_NUMBER_PARTS | CATENATE_WORDS | CATENATE_NUMBERS | CATENATE_ALL | SPLIT_ON_CASE_CHANGE | SPLIT_ON_NUMERICS | STEM_ENGLISH_POSSESSIVE;    
@@ -418,7 +463,7 @@ public class TestWordDelimiterGraphFilter extends BaseTokenStreamTestCase {
     };
     
     assertAnalyzesTo(a, "abc-def-123-456", 
-                     new String[] { "abcdef123456", "abc-def-123-456", "abcdef", "abc", "def", "123456", "123", "456" }, 
+                     new String[] { "abc-def-123-456", "abcdef123456", "abcdef", "abc", "def", "123456", "123", "456" },
                      new int[] { 0, 0, 0, 0, 0, 0, 0, 0 },
                      new int[] { 15, 15, 15, 15, 15, 15, 15, 15 },
                      null,
@@ -930,6 +975,9 @@ public class TestWordDelimiterGraphFilter extends BaseTokenStreamTestCase {
 
       fail(b.toString());
     }
+
+    boolean useCharFilter = true;
+    checkAnalysisConsistency(random(), getAnalyzer(flags), useCharFilter, text);
   }
 
   public void testOnlyNumbers() throws Exception {
